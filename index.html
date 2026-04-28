@@ -701,11 +701,20 @@ function toggleDetailsPanel(ev){
 function toggleSheet(){toggleDetailsPanel()}function visibleFitPadding(){
   const w=window.innerWidth||document.documentElement.clientWidth;
   const h=window.innerHeight||document.documentElement.clientHeight;
+  const inSubNav=document.body.classList.contains("subNavMode");
+
+  // In subsection navigation, CSS resizes the map to the visible half
+  // (top half on mobile, left half on desktop), so no large overlay padding is needed.
+  if(inSubNav){
+    return {paddingTopLeft:[28,28], paddingBottomRight:[28,28]};
+  }
+
   if(w<=700){
-    // Mobile route-list/detail panels cover the lower half; keep fitted routes in the visible upper half.
+    // Mobile route-list/detail panels cover the lower half.
     return {paddingTopLeft:[30,30], paddingBottomRight:[30, Math.ceil(h*0.52)]};
   }
-  // Desktop detail/subnav panels cover the right side; keep fitted routes in the left map area.
+
+  // Desktop route-detail panel covers the right side.
   return {paddingTopLeft:[35,35], paddingBottomRight:[Math.ceil(w*0.52),35]};
 }
 function focusRoute(id){
@@ -1088,6 +1097,26 @@ function googleSectionUrl(section){
   });
   return "https://www.google.com/maps/dir/?"+params.toString();
 }
+
+function getSubSectionLatLngs(routeId,i){
+  const r=[...DATA.routes,...DATA.ferryRoutes].find(x=>x.id===routeId);
+  const section=r&&r.sections?r.sections[i]:null;
+
+  // routeAllSections stores each section as [shadow,casing,foreground].
+  // The foreground polyline is the actual OSRM road-following path.
+  const fg=sectionLines[routeId] ? sectionLines[routeId][i*3+2] : null;
+  if(fg && typeof fg.getLatLngs==="function"){
+    const routed=fg.getLatLngs();
+    if(routed && routed.length) return routed;
+  }
+
+  // Fallback only when OSRM failed or was not available.
+  if(section && section.coordinates){
+    return section.coordinates.map(c=>[c[1],c[0]]);
+  }
+  return [];
+}
+
 function clearSubNavLines(){
   (subNavLines||[]).forEach(l=>{try{map.removeLayer(l)}catch(e){}});
   subNavLines=[];
@@ -1096,30 +1125,18 @@ async function drawSubNavSections(r){
   clearSubNavLines();
   if(!map || !r || !r.sections)return;
 
-  // Ensure OSRM-routed section geometry exists. If it has not been loaded, load this route now.
+  // Ensure OSRM-routed section geometry exists.
   if(!sectionLines[r.id] || sectionLines[r.id].length < r.sections.length*3){
     await routeAllSections(r);
   }
 
-  // Hide the normal route rendering, so subsection colours are not mixed with the overall route.
+  // Hide the normal route rendering, so only coloured subsection paths remain.
   DATA.routes.forEach(x=>setLines(sectionLines[x.id],false));
   DATA.ferryRoutes.forEach(x=>setLines(ferryLines[x.id],false));
 
   const allCoords=[];
   r.sections.forEach((s,i)=>{
-    let latlngs=null;
-
-    // routeAllSections stores each section as [shadow,casing,foreground].
-    // Use the foreground polyline geometry if available, so this is the actual OSRM road path, not a straight line.
-    const fg=sectionLines[r.id] ? sectionLines[r.id][i*3+2] : null;
-    if(fg && typeof fg.getLatLngs==="function"){
-      latlngs=fg.getLatLngs();
-    }
-
-    // Fallback only if OSRM failed for the section.
-    if(!latlngs || !latlngs.length){
-      latlngs=(s.coordinates||[]).map(c=>[c[1],c[0]]);
-    }
+    const latlngs=getSubSectionLatLngs(r.id,i);
     if(!latlngs || latlngs.length<2)return;
 
     latlngs.forEach(ll=>allCoords.push(ll));
@@ -1129,7 +1146,11 @@ async function drawSubNavSections(r){
       .bindPopup(`<b>${i+1}. ${s.label}</b><br>${s.roadnames}<br><a target="_blank" href="${wazeSectionUrl(s)}">Waze endpoint</a>`);
     subNavLines.push(shadow,casing,fg2);
   });
-  if(allCoords.length) map.fitBounds(L.latLngBounds(allCoords),visibleFitPadding());
+
+  setTimeout(()=>map.invalidateSize(),50);
+  if(allCoords.length){
+    setTimeout(()=>map.fitBounds(L.latLngBounds(allCoords),visibleFitPadding()),90);
+  }
 }
 function subNavItemHTML(r,s,i){
   const from=pointById(s.from), to=pointById(s.to);
@@ -1193,12 +1214,23 @@ function toggleSubNavPanel(){
   if(btn)btn.textContent=p.classList.contains("collapsed")?"Open":"Collapse";
   setTimeout(()=>map.invalidateSize(),100);
 }
-function zoomToSubSection(routeId,i){
+async function zoomToSubSection(routeId,i){
   const r=[...DATA.routes,...DATA.ferryRoutes].find(x=>x.id===routeId);
-  const s=r&&r.sections?r.sections[i]:null;
-  if(!s||!s.coordinates)return;
-  const latlngs=s.coordinates.map(c=>[c[1],c[0]]);
-  map.fitBounds(L.latLngBounds(latlngs),visibleFitPadding());
+  if(!r)return;
+
+  // Load the route if needed so the subsection zoom uses the actual OSRM road path.
+  if(!sectionLines[routeId] || sectionLines[routeId].length < (r.sections||[]).length*3){
+    await routeAllSections(r);
+    DATA.routes.forEach(x=>setLines(sectionLines[x.id],false));
+    DATA.ferryRoutes.forEach(x=>setLines(ferryLines[x.id],false));
+    await drawSubNavSections(r);
+  }
+
+  const latlngs=getSubSectionLatLngs(routeId,i);
+  if(!latlngs || latlngs.length<2)return;
+
+  setTimeout(()=>map.invalidateSize(),30);
+  setTimeout(()=>map.fitBounds(L.latLngBounds(latlngs),visibleFitPadding()),80);
 }
 
 </script></body></html>
