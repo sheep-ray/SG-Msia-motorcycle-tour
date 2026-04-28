@@ -493,6 +493,35 @@
 .subNavActions{grid-template-columns:1fr 1fr 1fr!important}
 @media(max-width:700px){.subNavActions{grid-template-columns:1fr!important}}
 
+
+/* === Equal mobile/desktop action buttons and half-screen mobile detail === */
+.desktopActions{grid-template-columns:1fr 1fr 1fr!important}
+.mobileActions{grid-template-columns:1fr!important}
+.desktopActions button,.mobileActions button{
+  min-height:44px;border-radius:13px;font-weight:850;font-size:14px;text-align:center;display:flex;align-items:center;justify-content:center;text-decoration:none;background:#fff;color:#0057E7;border:1px solid #0057E7;
+}
+@media(max-width:700px){
+  .mobileRouteDetail{
+    height:50dvh!important;
+    max-height:50dvh!important;
+    left:0!important;
+    right:0!important;
+    bottom:0!important;
+    width:auto!important;
+    max-width:none!important;
+    border-radius:20px 20px 0 0!important;
+  }
+  .mobileRouteDetailContent{
+    max-height:calc(50dvh - 68px - env(safe-area-inset-bottom))!important;
+  }
+  .mobileRouteList{
+    max-height:50dvh!important;
+  }
+  .mobileRouteButtons{
+    max-height:calc(50dvh - 72px - env(safe-area-inset-bottom))!important;
+  }
+}
+
 </style></head><body><div id="map"></div>
 
 
@@ -669,10 +698,24 @@ function toggleDetailsPanel(ev){
   if(btn) btn.textContent=panel.classList.contains("collapsed")?"Open":"Collapse";
 }
 
-function toggleSheet(){toggleDetailsPanel()}function focusRoute(id){const r=[...DATA.routes,...DATA.ferryRoutes].find(x=>x.id===id);if(!r)return;map.fitBounds(L.latLngBounds(r.coordinates.map(c=>[c[1],c[0]])),{padding:[40,40]})}
+function toggleSheet(){toggleDetailsPanel()}function visibleFitPadding(){
+  const w=window.innerWidth||document.documentElement.clientWidth;
+  const h=window.innerHeight||document.documentElement.clientHeight;
+  if(w<=700){
+    // Mobile route-list/detail panels cover the lower half; keep fitted routes in the visible upper half.
+    return {paddingTopLeft:[30,30], paddingBottomRight:[30, Math.ceil(h*0.52)]};
+  }
+  // Desktop detail/subnav panels cover the right side; keep fitted routes in the left map area.
+  return {paddingTopLeft:[35,35], paddingBottomRight:[Math.ceil(w*0.52),35]};
+}
+function focusRoute(id){
+  const r=[...DATA.routes,...DATA.ferryRoutes].find(x=>x.id===id);
+  if(!r)return;
+  map.fitBounds(L.latLngBounds(r.coordinates.map(c=>[c[1],c[0]])),visibleFitPadding());
+}
 function toggleGroup(g){activeGroup===g?resetAll():focusGroup(g)}function focusGroup(g){activeGroup=g;document.querySelectorAll(".chip").forEach(c=>c.classList.remove("active"));const chip=document.getElementById("chip-"+slug(g));if(chip)chip.classList.add("active");setActiveRouteButton(null);document.querySelectorAll(".card").forEach(card=>card.classList.toggle("hidden",card.dataset.group!==g));const rel=new Set();[...DATA.routes,...DATA.ferryRoutes].filter(r=>r.group===g).forEach(r=>(r.pointIds||[]).forEach(id=>rel.add(id)));DATA.points.filter(p=>p.show||rel.has(p.id)).forEach(p=>{if(!markers[p.id])addMarker(p)});Object.entries(markers).forEach(([id,m])=>rel.has(id)||DATA.points.find(p=>p.id===id)?.show?map.addLayer(m):map.removeLayer(m));DATA.routes.forEach(r=>setLines(sectionLines[r.id],r.group===g));DATA.ferryRoutes.forEach(r=>setLines(ferryLines[r.id],r.group===g));fitIds([...rel])}
 function resetAll(){activeGroup=null;document.querySelectorAll(".chip").forEach(c=>c.classList.remove("active"));document.getElementById("chip-all").classList.add("active");setActiveRouteButton(null);document.querySelectorAll(".card").forEach(card=>card.classList.remove("hidden"));Object.entries(markers).forEach(([id,m])=>{const p=DATA.points.find(x=>x.id===id);p&&p.show?map.addLayer(m):map.removeLayer(m)});DATA.routes.forEach(r=>setLines(sectionLines[r.id],true));DATA.ferryRoutes.forEach(r=>setLines(ferryLines[r.id],true));fitShown()}
-function setLines(lines,visible){(lines||[]).forEach(l=>visible?map.addLayer(l):map.removeLayer(l))}function fitIds(ids){const pts=ids.map(id=>DATA.points.find(p=>p.id===id)).filter(Boolean).map(p=>[p.lat,p.lng]);if(pts.length)map.fitBounds(L.latLngBounds(pts),{padding:[40,40]})}function fitShown(){const pts=DATA.points.filter(p=>p.show).map(p=>[p.lat,p.lng]);if(pts.length)map.fitBounds(L.latLngBounds(pts),{padding:[35,35]})}function formatDuration(sec){const h=Math.floor(sec/3600),m=Math.round((sec%3600)/60);return h?`${h} h ${m} min`:`${m} min`}function slug(s){return s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")}
+function setLines(lines,visible){(lines||[]).forEach(l=>visible?map.addLayer(l):map.removeLayer(l))}function fitIds(ids){const pts=ids.map(id=>DATA.points.find(p=>p.id===id)).filter(Boolean).map(p=>[p.lat,p.lng]);if(pts.length)map.fitBounds(L.latLngBounds(pts),visibleFitPadding())}function fitShown(){const pts=DATA.points.filter(p=>p.show).map(p=>[p.lat,p.lng]);if(pts.length)map.fitBounds(L.latLngBounds(pts),visibleFitPadding())}function formatDuration(sec){const h=Math.floor(sec/3600),m=Math.round((sec%3600)/60);return h?`${h} h ${m} min`:`${m} min`}function slug(s){return s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")}
 let mobileRoutesLoaded=false;
 function mobileInit(){
   const stats=document.getElementById("mobileStats");
@@ -724,6 +767,7 @@ function mobileOpenRoute(routeId){
   document.getElementById("mobileRouteDetail")?.classList.remove("hidden");
   const content=document.getElementById("mobileRouteDetailContent");
   if(content)content.innerHTML=mobileRouteDetailHTML(r);
+  setTimeout(()=>focusRoute(routeId),120);
     document.getElementById("mobileMapHint")?.classList.add("hidden");
   mobileUiHiddenByMap=false;
 }
@@ -752,14 +796,15 @@ function mobileRouteDetailHTML(r){
     <div class="mobileSection"><b>Route points</b><br>${pointList}</div>${sections}
     <div class="mobileActions">
       <a target="_blank" href="${r.directionsUrl}">Full route: Google Maps</a>
-      <a target="_blank" href="${mobileWazeRouteUrl(r)}">Subsection navigation</a>
+      <button onclick="openSubNavView(\'${r.id}\')">Subsection navigation</button>
+      <button onclick="focusRoute(\'${r.id}\')">Show route on map</button>
     </div>`;
 }
 function mobileBackToRouteList(){
   document.getElementById("mobileIntro")?.classList.add("hidden");
   document.getElementById("mobileRouteDetail")?.classList.add("hidden");
   document.getElementById("mobileRouteList")?.classList.remove("hidden");
-    mobileLastPanel="detail";
+    mobileLastPanel="list";
 }
 function mobileShowFullMap(){
   if(!mobileRoutesLoaded){
@@ -937,6 +982,7 @@ function desktopOpenRoute(routeId){
   document.getElementById("desktopRouteDetail")?.classList.remove("hidden");
   const content=document.getElementById("desktopRouteDetailContent");
   if(content)content.innerHTML=desktopRouteDetailHTML(r);
+  setTimeout(()=>focusRoute(routeId),120);
   desktopLastPanel="detail";
   document.getElementById("desktopMapHint")?.classList.add("hidden");
 }
@@ -957,7 +1003,7 @@ function desktopRouteDetailHTML(r){
     <span class="desktopBadge">${r.variant}</span><span class="desktopBadge">${r.road_class}</span>
     <p><b>Total:</b> ${total}</p><p>${r.notes||""}</p><p><b>Scenic-road basis:</b> ${r.road_reco||""}</p>
     <div class="desktopSection"><b>Route points</b><br>${pointList}</div>${sections}
-    <div class="desktopActions"><a target="_blank" href="${r.directionsUrl}">Full route: Google Maps</a><button onclick="openSubNavView(\'${r.id}\')">Subsection navigation</button><button onclick="focusRoute(\'${r.id}\')">Show route on map</button></div><p class="navNote">Waze navigation is available subsection-by-subsection. Waze opens the section end point from your current location; use Google Maps section links when you need both start and end points.</p>`;
+    <div class="desktopActions"><a target="_blank" href="${r.directionsUrl}">Full route: Google Maps</a><button onclick="openSubNavView(\'${r.id}\')">Subsection navigation</button><button onclick="focusRoute(\'${r.id}\')">Show route on map</button></div><p class="navNote">Waze navigation is available subsection-by-subsection. Waze opens the section end point from your current location; use Google subsection links when you need both start and end points.</p>`;
 }
 function desktopBackToRouteList(){
   document.getElementById("desktopRouteDetail")?.classList.add("hidden");
@@ -1083,7 +1129,7 @@ async function drawSubNavSections(r){
       .bindPopup(`<b>${i+1}. ${s.label}</b><br>${s.roadnames}<br><a target="_blank" href="${wazeSectionUrl(s)}">Waze endpoint</a>`);
     subNavLines.push(shadow,casing,fg2);
   });
-  if(allCoords.length) map.fitBounds(L.latLngBounds(allCoords),{padding:[35,35]});
+  if(allCoords.length) map.fitBounds(L.latLngBounds(allCoords),visibleFitPadding());
 }
 function subNavItemHTML(r,s,i){
   const from=pointById(s.from), to=pointById(s.to);
@@ -1100,7 +1146,7 @@ function subNavItemHTML(r,s,i){
     <div class="subNavItemMeta"><b>OSRM time:</b> ${timing}</div>
     <div class="subNavItemMeta">${s.note||""}</div>
     <div class="subNavActions">
-      <a target="_blank" href="${googleSectionUrl(s)}">Google Maps section</a><a target="_blank" href="${wazeSectionUrl(s)}">Waze endpoint</a><button onclick="zoomToSubSection(\'${r.id}\',${i})">Show on map</button>
+      <a target="_blank" href="${googleSectionUrl(s)}">Google subsection</a><a target="_blank" href="${wazeSectionUrl(s)}">Waze endpoint</a><button onclick="zoomToSubSection(\'${r.id}\',${i})">Show on map</button>
     </div>
   </div>`;
 }
@@ -1110,7 +1156,7 @@ async function openSubNavView(routeId){
   currentSubNavRouteId=routeId;
   document.body.classList.add("subNavMode");
   document.getElementById("subNavTitle").textContent=r.name;
-  document.getElementById("subNavSubtitle").textContent="Waze opens the section end point; Google Maps section uses start + end";
+  document.getElementById("subNavSubtitle").textContent="Waze opens the section end point; Google subsection uses start + end";
   document.getElementById("subNavList").innerHTML=(r.sections||[]).map((s,i)=>subNavItemHTML(r,s,i)).join("");
   document.getElementById("subNavPanel").classList.remove("hidden","collapsed");
   // Hide workflow panels while subnav is active.
@@ -1152,7 +1198,7 @@ function zoomToSubSection(routeId,i){
   const s=r&&r.sections?r.sections[i]:null;
   if(!s||!s.coordinates)return;
   const latlngs=s.coordinates.map(c=>[c[1],c[0]]);
-  map.fitBounds(L.latLngBounds(latlngs),{padding:[45,45]});
+  map.fitBounds(L.latLngBounds(latlngs),visibleFitPadding());
 }
 
 </script></body></html>
