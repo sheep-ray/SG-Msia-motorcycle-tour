@@ -271,6 +271,11 @@
   .mobilePrimary:disabled{opacity:.75;filter:saturate(.7)}
 }
 
+
+@media(max-width:700px){
+  #mobileFloatingMenu{display:none!important}
+}
+
 </style></head><body><div id="map"></div>
 
 <div id="mobileShell" class="mobileShell">
@@ -283,27 +288,23 @@
       <div class="mobileProgressText" id="mobileProgressText">Preparing routes…</div>
       <div class="mobileProgressBar"><div id="mobileProgressFill"></div></div>
     </div>
-    <p class="mobileHint">After loading, choose a route from the list. Route timings use free OSRM; use Google Maps buttons for live navigation.</p>
+    <p class="mobileHint">The full route list and full-map view will be available after route loading is complete. Route timings use free OSRM; use Google Maps buttons for live navigation.</p>
   </section>
 
   <section id="mobileRouteList" class="mobilePanel mobileRouteList hidden">
     <div class="mobilePanelHeader">
       <div><b>Route list</b><span id="mobileRouteLoadStatus">Choose one route</span></div>
-      <button onclick="mobileShowFullMap()">Full map</button>
-    </div>
+</div>
     <div id="mobileRouteButtons" class="mobileRouteButtons"></div>
   </section>
 
   <section id="mobileRouteDetail" class="mobilePanel mobileRouteDetail hidden">
     <div class="mobilePanelHeader">
       <button onclick="mobileBackToRouteList()">← Back</button>
-      <button onclick="mobileShowFullMap()">Full map</button>
-    </div>
+</div>
     <div id="mobileRouteDetailContent" class="mobileRouteDetailContent"></div>
   </section>
-
-  <button id="mobileFloatingMenu" class="mobileFloatingMenu hidden" onclick="mobileRestorePanelsFromMap()">Back</button>
-  <div id="mobileMapHint" class="mobileMapHint hidden">Tap map to show route list</div>
+<div id="mobileMapHint" class="mobileMapHint hidden">Tap map to return</div>
 </div>
 
 <div class="top"><h1>Filtered Malaysia motorcycle touring atlas</h1><details open><summary>Review-filtered + section timings</summary><div class="small">Food/photo/activity pins now include direct venue/reference links. They are retained when TRI333PLE-confirmed, review-supported, major high-volume attractions, or rider-forum-supported scenic route anchors. Route hubs are hidden by default. Use the bottom-left Route list panel to choose routes quickly; click the top of the right-side Route details panel to collapse or reopen it. Each route is split into road-labelled subsections with OSRM timings after loading.</div><div id="pointStats" class="small" style="font-weight:800;margin:6px 0;"></div><button class="primary" onclick="loadVisibleRoutes()">Load visible road routes</button><div id="status" class="small"></div></details></div>
@@ -448,8 +449,7 @@ async function mobileLoadRoutes(){
   setTimeout(()=>{
     if(intro)intro.classList.add("hidden");
     if(list)list.classList.remove("hidden");
-    document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
-    document.getElementById("mobileMapHint")?.classList.add("hidden");
+        document.getElementById("mobileMapHint")?.classList.add("hidden");
   }, 600);
 }
 function mobileOpenRoute(routeId){
@@ -460,10 +460,18 @@ function mobileOpenRoute(routeId){
   document.getElementById("mobileRouteDetail")?.classList.remove("hidden");
   const content=document.getElementById("mobileRouteDetailContent");
   if(content)content.innerHTML=mobileRouteDetailHTML(r);
-  document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
-  document.getElementById("mobileMapHint")?.classList.add("hidden");
+    document.getElementById("mobileMapHint")?.classList.add("hidden");
   mobileUiHiddenByMap=false;
 }
+
+function mobileWazeRouteUrl(r){
+  const ids=r.pointIds||[];
+  const destId=ids.length?ids[ids.length-1]:null;
+  const p=DATA.points.find(x=>x.id===destId);
+  if(!p)return "https://www.waze.com/live-map";
+  return `https://waze.com/ul?ll=${p.lat},${p.lng}&navigate=yes`;
+}
+
 function mobileRouteDetailHTML(r){
   const pointList=(r.pointIds||[]).map((id,i)=>{const p=DATA.points.find(x=>x.id===id);return `${i+1}. ${p?p.name:id}`;}).join("<br>");
   const sections=(r.sections||[]).map((s,i)=>{
@@ -477,16 +485,22 @@ function mobileRouteDetailHTML(r){
     <span class="mobileBadge">${r.variant}</span><span class="mobileBadge">${r.road_class}</span>
     <p><b>Total:</b> ${total}</p><p>${r.notes||""}</p><p><b>Scenic-road basis:</b> ${r.road_reco||""}</p>
     <div class="mobileSection"><b>Route points</b><br>${pointList}</div>${sections}
-    <div class="mobileActions"><a target="_blank" href="${r.directionsUrl}">Open full route in Google Maps</a><button onclick="mobileShowFullMap()">Show full map</button></div>`;
+    <div class="mobileActions"><a target="_blank" href="${r.directionsUrl}">Open full route in Google Maps</a><a target="_blank" href="${mobileWazeRouteUrl(r)}">Open destination in Waze</a></div>`;
 }
 function mobileBackToRouteList(){
   document.getElementById("mobileIntro")?.classList.add("hidden");
   document.getElementById("mobileRouteDetail")?.classList.add("hidden");
   document.getElementById("mobileRouteList")?.classList.remove("hidden");
-  document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
-  mobileLastPanel="detail";
+    mobileLastPanel="detail";
 }
 function mobileShowFullMap(){
+  if(!mobileRoutesLoaded){
+    const text=document.getElementById("mobileProgressText");
+    const wrap=document.getElementById("mobileProgressWrap");
+    if(wrap)wrap.classList.remove("hidden");
+    if(text)text.textContent="Please load routes first. The full map view will be available after loading is complete.";
+    return;
+  }
   mobileHidePanelsForMap();
   if(typeof fitShown==="function")fitShown();
 }
@@ -540,14 +554,12 @@ function mobileHidePanelsForMap(){
   document.getElementById("mobileIntro")?.classList.add("hidden");
   document.getElementById("mobileRouteList")?.classList.add("hidden");
   document.getElementById("mobileRouteDetail")?.classList.add("hidden");
-  document.getElementById("mobileFloatingMenu")?.classList.remove("hidden");
-  document.getElementById("mobileMapHint")?.classList.remove("hidden");
+    document.getElementById("mobileMapHint")?.classList.remove("hidden");
   mobileUiHiddenByMap=true;
 }
 
 function mobileRestorePanelsFromMap(){
-  document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
-  document.getElementById("mobileMapHint")?.classList.add("hidden");
+    document.getElementById("mobileMapHint")?.classList.add("hidden");
   document.getElementById("mobileIntro")?.classList.add("hidden");
   document.getElementById("mobileRouteList")?.classList.add("hidden");
   document.getElementById("mobileRouteDetail")?.classList.add("hidden");
@@ -566,6 +578,7 @@ function mobileAttachMapTapToggle(){
   map._mobileTapToggleAttached=true;
   map.on("click",()=>{
     if(window.innerWidth>700)return;
+    if(!mobileRoutesLoaded)return;
     if(mobileAllPanelsHidden()) mobileRestorePanelsFromMap();
     else mobileHidePanelsForMap();
   });
