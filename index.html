@@ -213,6 +213,59 @@
   .mobileRouteDetailContent{max-height:calc(100vh - 96px)}
 }
 
+
+/* === Mobile progress + width fix + tap-map UI toggle === */
+@media(max-width:700px){
+  html,body{overflow:hidden}
+  .mobilePanel{box-sizing:border-box!important;max-width:calc(100vw - 24px)!important}
+  .mobileRouteList{
+    width:auto!important;
+    max-width:none!important;
+    left:8px!important;
+    right:8px!important;
+    bottom:0!important;
+    transform:none!important;
+  }
+  .mobileRouteDetail{
+    width:auto!important;
+    max-width:none!important;
+    left:8px!important;
+    right:8px!important;
+    bottom:0!important;
+  }
+  .mobileRouteButtons{
+    grid-template-columns:1fr!important;
+    width:100%!important;
+  }
+  .mobileRouteBtn{
+    max-width:100%!important;
+    overflow-wrap:anywhere!important;
+  }
+  .mobileProgressWrap{margin-top:10px}
+  .mobileProgressWrap.hidden{display:none!important}
+  .mobileProgressText{font-size:12px;color:#333;font-weight:800;margin-bottom:6px}
+  .mobileProgressBar{width:100%;height:10px;background:#eadfcb;border-radius:999px;overflow:hidden;border:1px solid #d7c59d}
+  .mobileProgressBar div{height:100%;width:0%;background:#0057E7;border-radius:999px;transition:width .18s ease}
+  .mobileFloatingMenu{
+    min-width:112px!important;
+  }
+  .mobileMapHint{
+    position:absolute;
+    left:50%;
+    transform:translateX(-50%);
+    bottom:calc(18px + env(safe-area-inset-bottom));
+    z-index:2001;
+    background:rgba(17,17,17,.78);
+    color:white;
+    border-radius:999px;
+    padding:9px 12px;
+    font-size:12px;
+    font-weight:800;
+    box-shadow:0 3px 12px rgba(0,0,0,.25);
+  }
+  .mobileMapHint.hidden{display:none!important}
+}
+
 </style></head><body><div id="map"></div>
 
 <div id="mobileShell" class="mobileShell">
@@ -221,6 +274,10 @@
     <p>Reviewed food, coffee, photo, camping and scenic stops around Singapore–Malaysia routes.</p>
     <div class="mobileStats" id="mobileStats"></div>
     <button class="mobilePrimary" onclick="mobileLoadRoutes()">Load routes</button>
+    <div id="mobileProgressWrap" class="mobileProgressWrap hidden">
+      <div class="mobileProgressText" id="mobileProgressText">Preparing routes…</div>
+      <div class="mobileProgressBar"><div id="mobileProgressFill"></div></div>
+    </div>
     <button class="mobileSecondary" onclick="mobileShowFullMap()">Show full map</button>
     <p class="mobileHint">After loading, choose a route from the list. Route timings use free OSRM; use Google Maps buttons for live navigation.</p>
   </section>
@@ -242,6 +299,7 @@
   </section>
 
   <button id="mobileFloatingMenu" class="mobileFloatingMenu hidden" onclick="mobileBackToRouteList()">Routes</button>
+  <div id="mobileMapHint" class="mobileMapHint hidden">Tap map to show route list</div>
 </div>
 
 <div class="top"><h1>Filtered Malaysia motorcycle touring atlas</h1><details open><summary>Review-filtered + section timings</summary><div class="small">Food/photo/activity pins now include direct venue/reference links. They are retained when TRI333PLE-confirmed, review-supported, major high-volume attractions, or rider-forum-supported scenic route anchors. Route hubs are hidden by default. Use the bottom-left Route list panel to choose routes quickly; click the top of the right-side Route details panel to collapse or reopen it. Each route is split into road-labelled subsections with OSRM timings after loading.</div><div id="pointStats" class="small" style="font-weight:800;margin:6px 0;"></div><button class="primary" onclick="loadVisibleRoutes()">Load visible road routes</button><div id="status" class="small"></div></details></div>
@@ -356,6 +414,7 @@ function mobileInit(){
     stats.innerHTML=`<div>${routes}<br><span>routes</span></div><div>${visible}<br><span>visible stops</span></div><div>${total}<br><span>all points</span></div><div>OSRM<br><span>free routing</span></div>`;
   }
   mobileBuildRouteButtons();
+  setTimeout(mobileAttachMapTapToggle,300);
 }
 function mobileBuildRouteButtons(){
   const box=document.getElementById("mobileRouteButtons");
@@ -370,15 +429,13 @@ function mobileBuildRouteButtons(){
   });
 }
 async function mobileLoadRoutes(){
-  const status=document.getElementById("mobileRouteLoadStatus");
   const intro=document.getElementById("mobileIntro");
   const list=document.getElementById("mobileRouteList");
-  await loadVisibleRoutes();
-  mobileRoutesLoaded=true;
-  if(status)status.textContent="Routes loaded. Choose one route.";
+  await mobileLoadRoutesWithProgress();
   if(intro)intro.classList.add("hidden");
   if(list)list.classList.remove("hidden");
   document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
+  document.getElementById("mobileMapHint")?.classList.add("hidden");
 }
 function mobileOpenRoute(routeId){
   focusRouteOnly(routeId);
@@ -389,6 +446,8 @@ function mobileOpenRoute(routeId){
   const content=document.getElementById("mobileRouteDetailContent");
   if(content)content.innerHTML=mobileRouteDetailHTML(r);
   document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
+  document.getElementById("mobileMapHint")?.classList.add("hidden");
+  mobileUiHiddenByMap=false;
 }
 function mobileRouteDetailHTML(r){
   const pointList=(r.pointIds||[]).map((id,i)=>{const p=DATA.points.find(x=>x.id===id);return `${i+1}. ${p?p.name:id}`;}).join("<br>");
@@ -412,12 +471,82 @@ function mobileBackToRouteList(){
   document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
 }
 function mobileShowFullMap(){
-  document.getElementById("mobileIntro")?.classList.add("hidden");
-  document.getElementById("mobileRouteList")?.classList.add("hidden");
-  document.getElementById("mobileRouteDetail")?.classList.add("hidden");
-  document.getElementById("mobileFloatingMenu")?.classList.remove("hidden");
+  mobileHidePanelsForMap();
   if(typeof fitShown==="function")fitShown();
 }
 
 if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',mobileInit)}else{mobileInit()}
+
+/* === Mobile progress patch === */
+let mobileUiHiddenByMap=false;
+let mobileLastPanel="list";
+
+function mobileSetProgress(done,total,label){
+  const wrap=document.getElementById("mobileProgressWrap");
+  const text=document.getElementById("mobileProgressText");
+  const fill=document.getElementById("mobileProgressFill");
+  if(wrap)wrap.classList.remove("hidden");
+  const pct=total?Math.round((done/total)*100):0;
+  if(text)text.textContent=`${label||"Loading routes"}: ${done}/${total} (${pct}%)`;
+  if(fill)fill.style.width=pct+"%";
+}
+
+async function mobileLoadRoutesWithProgress(){
+  const list=DATA.routes; // ferry visual line does not need OSRM loading
+  mobileSetProgress(0,list.length,"Loading route sections");
+  const status=document.getElementById("mobileRouteLoadStatus");
+  if(status)status.textContent="Loading routes…";
+  let done=0;
+  for(const r of list){
+    await routeAllSections(r);
+    done++;
+    mobileSetProgress(done,list.length,"Loading route sections");
+    if(status)status.textContent=`Loaded ${done}/${list.length}`;
+    await new Promise(requestAnimationFrame);
+  }
+  mobileRoutesLoaded=true;
+  if(status)status.textContent="Routes loaded. Choose one route.";
+  const text=document.getElementById("mobileProgressText");
+  if(text)text.textContent=`Finished loading ${list.length} routes`;
+}
+
+function mobileAllPanelsHidden(){
+  return document.getElementById("mobileIntro")?.classList.contains("hidden") &&
+         document.getElementById("mobileRouteList")?.classList.contains("hidden") &&
+         document.getElementById("mobileRouteDetail")?.classList.contains("hidden");
+}
+
+function mobileHidePanelsForMap(){
+  const detailVisible=!document.getElementById("mobileRouteDetail")?.classList.contains("hidden");
+  const listVisible=!document.getElementById("mobileRouteList")?.classList.contains("hidden");
+  mobileLastPanel=detailVisible?"detail":(listVisible?"list":"list");
+  document.getElementById("mobileIntro")?.classList.add("hidden");
+  document.getElementById("mobileRouteList")?.classList.add("hidden");
+  document.getElementById("mobileRouteDetail")?.classList.add("hidden");
+  document.getElementById("mobileFloatingMenu")?.classList.remove("hidden");
+  document.getElementById("mobileMapHint")?.classList.remove("hidden");
+  mobileUiHiddenByMap=true;
+}
+
+function mobileRestorePanelsFromMap(){
+  document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
+  document.getElementById("mobileMapHint")?.classList.add("hidden");
+  if(mobileLastPanel==="detail"){
+    document.getElementById("mobileRouteDetail")?.classList.remove("hidden");
+  }else{
+    document.getElementById("mobileRouteList")?.classList.remove("hidden");
+  }
+  mobileUiHiddenByMap=false;
+}
+
+function mobileAttachMapTapToggle(){
+  if(!map || map._mobileTapToggleAttached)return;
+  map._mobileTapToggleAttached=true;
+  map.on("click",()=>{
+    if(window.innerWidth>700)return;
+    if(mobileAllPanelsHidden()) mobileRestorePanelsFromMap();
+    else mobileHidePanelsForMap();
+  });
+}
+
 </script></body></html>
