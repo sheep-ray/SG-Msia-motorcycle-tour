@@ -522,6 +522,14 @@
   }
 }
 
+
+/* === Route inversion button support === */
+.desktopActions{grid-template-columns:1fr 1fr 1fr 1fr!important}
+.mobileActions{grid-template-columns:1fr!important}
+.desktopActions button,.mobileActions button{
+  min-height:44px;border-radius:13px;font-weight:850;font-size:14px;text-align:center;display:flex;align-items:center;justify-content:center;text-decoration:none;background:#fff;color:#0057E7;border:1px solid #0057E7;
+}
+
 </style></head><body><div id="map"></div>
 
 
@@ -768,7 +776,8 @@ async function mobileLoadRoutes(){
         document.getElementById("mobileMapHint")?.classList.add("hidden");
   }, 600);
 }
-function mobileOpenRoute(routeId){
+function mobileOpenRoute(routeId,preserveDirection=false){
+  if(!preserveDirection)resetRouteDirection(routeId);
   focusRouteOnly(routeId);
   const r=[...DATA.routes,...DATA.ferryRoutes].find(x=>x.id===routeId);
   if(!r)return;
@@ -787,26 +796,27 @@ function mobileWazeRouteUrl(r){
 }
 
 function mobileRouteDetailHTML(r){
-  const pointList=(r.pointIds||[]).map((id,i)=>{
-    const p=DATA.points.find(x=>x.id===id);
-    const name=p?p.name:id;
+  const ids=effectivePointIds(r);
+  const pointList=ids.map((id,i)=>{
+    const name=pointName(id);
     return `${i+1}. ${name} <a class="inlineNav" target="_blank" href="${routePointWazeUrl(id)}">Waze</a>`;
   }).join("<br>");
-  const sections=(r.sections||[]).map((s,i)=>{
-    const el=document.getElementById(`sec-${r.id}-${i}`);
+  const sections=effectiveSections(r).map((sec,i)=>{
+    const el=document.getElementById(`sec-${r.id}-${sec._origIndex}`);
     const timing=el?el.textContent:"not calculated";
-    return `<div class="mobileSection"><b>${i+1}. ${s.label}</b><br><b>Road:</b> ${s.roadnames}<br><b>Time:</b> ${timing}<br>${s.note||""}</div>`;
+    return `<div class="mobileSection"><b>${i+1}. ${sec.label}</b><br><b>Road:</b> ${sec.roadnames}<br><b>Time:</b> ${timing}<br>${sec.note||""}</div>`;
   }).join("");
   const totalEl=document.getElementById("dur-"+r.id);
   const total=totalEl?totalEl.textContent:"not calculated";
   return `<div class="mobileDetailTitle">${r.name}</div>
-    <span class="mobileBadge">${r.variant}</span><span class="mobileBadge">${r.road_class}</span>
+    <span class="mobileBadge">${r.variant}</span><span class="mobileBadge">${r.road_class}</span><span class="mobileBadge">${directionLabel(r)}</span>
     <p><b>Total:</b> ${total}</p><p>${r.notes||""}</p><p><b>Scenic-road basis:</b> ${r.road_reco||""}</p>
     <div class="mobileSection"><b>Route points</b><br>${pointList}</div>${sections}
     <div class="mobileActions">
-      <a target="_blank" href="${r.directionsUrl}">Full route: Google Maps</a>
-      <button onclick="openSubNavView(\'${r.id}\')">Subsection navigation</button>
-      <button onclick="focusRoute(\'${r.id}\')">Show route on map</button>
+      <a target="_blank" href="${effectiveRouteUrl(r)}">Full route: Google Maps</a>
+      <button onclick="openSubNavView('${r.id}')">Subsection navigation</button>
+      <button onclick="focusRoute('${r.id}')">Show route on map</button>
+      <button onclick="toggleRouteDirection('${r.id}')">${invertButtonLabel(r)}</button>
     </div>`;
 }
 function mobileBackToRouteList(){
@@ -908,6 +918,84 @@ function mobileAttachMapTapToggle(){
 
 
 
+
+/* === Route direction toggle helpers === */
+let routeDirectionFlipped={};
+
+function isRouteFlipped(routeId){
+  return !!routeDirectionFlipped[routeId];
+}
+function resetRouteDirection(routeId){
+  routeDirectionFlipped[routeId]=false;
+}
+function toggleRouteDirection(routeId){
+  routeDirectionFlipped[routeId]=!routeDirectionFlipped[routeId];
+  const r=[...DATA.routes,...DATA.ferryRoutes].find(x=>x.id===routeId);
+  if(!r)return;
+
+  const mobileDetail=document.getElementById("mobileRouteDetail");
+  const desktopDetail=document.getElementById("desktopRouteDetail");
+  const mobileContent=document.getElementById("mobileRouteDetailContent");
+  const desktopContent=document.getElementById("desktopRouteDetailContent");
+
+  if(mobileContent && mobileDetail && !mobileDetail.classList.contains("hidden")){
+    mobileContent.innerHTML=mobileRouteDetailHTML(r);
+  }
+  if(desktopContent && desktopDetail && !desktopDetail.classList.contains("hidden")){
+    desktopContent.innerHTML=desktopRouteDetailHTML(r);
+  }
+  focusRoute(routeId);
+}
+function effectivePointIds(r){
+  const ids=[...(r.pointIds||[])];
+  return isRouteFlipped(r.id)?ids.reverse():ids;
+}
+function effectiveSections(r){
+  const sections=[...(r.sections||[])];
+  if(!isRouteFlipped(r.id)) return sections.map((s,i)=>({...s,_origIndex:i,_displayIndex:i}));
+  return sections.reverse().map((s,displayIndex)=>{
+    const origIndex=(r.sections||[]).indexOf(s);
+    return {
+      ...s,
+      from:s.to,
+      to:s.from,
+      label:`${pointName(s.to)} → ${pointName(s.from)}`,
+      note:(s.note||"")+" (Reverse direction; same estimated time and road geometry assumed.)",
+      _origIndex:origIndex,
+      _displayIndex:displayIndex,
+      _reversed:true
+    };
+  });
+}
+function pointName(id){
+  const p=DATA.points.find(x=>x.id===id);
+  return p?p.name:id;
+}
+function effectiveRouteUrl(r){
+  const ids=effectivePointIds(r);
+  if(!ids.length)return r.directionsUrl||"https://www.google.com/maps";
+  function fmt(pid){
+    const p=DATA.points.find(x=>x.id===pid);
+    return p?`${p.lat.toFixed(7)},${p.lng.toFixed(7)}`:"";
+  }
+  const params=new URLSearchParams({
+    api:"1",
+    origin:fmt(ids[0]),
+    destination:fmt(ids[ids.length-1]),
+    travelmode:"driving"
+  });
+  if(ids.length>2){
+    params.set("waypoints", ids.slice(1,-1).map(fmt).join("|"));
+  }
+  return "https://www.google.com/maps/dir/?"+params.toString();
+}
+function directionLabel(r){
+  return isRouteFlipped(r.id)?"Reversed direction":"Default direction";
+}
+function invertButtonLabel(r){
+  return isRouteFlipped(r.id)?"Invert back":"Invert route";
+}
+
 function routePointWazeUrl(pointId){
   const p=DATA.points.find(x=>x.id===pointId);
   if(!p)return "https://www.waze.com/live-map";
@@ -983,7 +1071,8 @@ async function desktopLoadRoutes(){
     document.getElementById("desktopRouteLoadStatus").textContent="Routes loaded. Choose one route.";
   },600);
 }
-function desktopOpenRoute(routeId){
+function desktopOpenRoute(routeId,preserveDirection=false){
+  if(!preserveDirection)resetRouteDirection(routeId);
   focusRouteOnly(routeId);
   const r=[...DATA.routes,...DATA.ferryRoutes].find(x=>x.id===routeId);
   if(!r)return;
@@ -996,23 +1085,29 @@ function desktopOpenRoute(routeId){
   document.getElementById("desktopMapHint")?.classList.add("hidden");
 }
 function desktopRouteDetailHTML(r){
-  const pointList=(r.pointIds||[]).map((id,i)=>{
-    const p=DATA.points.find(x=>x.id===id);
-    const name=p?p.name:id;
+  const ids=effectivePointIds(r);
+  const pointList=ids.map((id,i)=>{
+    const name=pointName(id);
     return `${i+1}. ${name} <a class="inlineNav" target="_blank" href="${routePointWazeUrl(id)}">Waze</a>`;
   }).join("<br>");
-  const sections=(r.sections||[]).map((s,i)=>{
-    const el=document.getElementById(`sec-${r.id}-${i}`);
+  const sections=effectiveSections(r).map((sec,i)=>{
+    const el=document.getElementById(`sec-${r.id}-${sec._origIndex}`);
     const timing=el?el.textContent:"not calculated";
-    return `<div class="desktopSection"><b>${i+1}. ${s.label}</b><br><b>Road:</b> ${s.roadnames}<br><b>Time:</b> ${timing}<br>${s.note||""}</div>`;
+    return `<div class="desktopSection"><b>${i+1}. ${sec.label}</b><br><b>Road:</b> ${sec.roadnames}<br><b>Time:</b> ${timing}<br>${sec.note||""}</div>`;
   }).join("");
   const totalEl=document.getElementById("dur-"+r.id);
   const total=totalEl?totalEl.textContent:"not calculated";
   return `<div class="desktopDetailTitle">${r.name}</div>
-    <span class="desktopBadge">${r.variant}</span><span class="desktopBadge">${r.road_class}</span>
+    <span class="desktopBadge">${r.variant}</span><span class="desktopBadge">${r.road_class}</span><span class="desktopBadge">${directionLabel(r)}</span>
     <p><b>Total:</b> ${total}</p><p>${r.notes||""}</p><p><b>Scenic-road basis:</b> ${r.road_reco||""}</p>
     <div class="desktopSection"><b>Route points</b><br>${pointList}</div>${sections}
-    <div class="desktopActions"><a target="_blank" href="${r.directionsUrl}">Full route: Google Maps</a><button onclick="openSubNavView(\'${r.id}\')">Subsection navigation</button><button onclick="focusRoute(\'${r.id}\')">Show route on map</button></div><p class="navNote">Waze navigation is available subsection-by-subsection. Waze opens the section end point from your current location; use Google subsection links when you need both start and end points.</p>`;
+    <div class="desktopActions">
+      <a target="_blank" href="${effectiveRouteUrl(r)}">Full route: Google Maps</a>
+      <button onclick="openSubNavView('${r.id}')">Subsection navigation</button>
+      <button onclick="focusRoute('${r.id}')">Show route on map</button>
+      <button onclick="toggleRouteDirection('${r.id}')">${invertButtonLabel(r)}</button>
+    </div>
+    <p class="navNote">Waze navigation is available subsection-by-subsection. Reverse mode changes the subsection endpoints and links without recalculating route geometry or time.</p>`;
 }
 function desktopBackToRouteList(){
   document.getElementById("desktopRouteDetail")?.classList.add("hidden");
@@ -1125,25 +1220,24 @@ async function drawSubNavSections(r){
   clearSubNavLines();
   if(!map || !r || !r.sections)return;
 
-  // Ensure OSRM-routed section geometry exists.
   if(!sectionLines[r.id] || sectionLines[r.id].length < r.sections.length*3){
     await routeAllSections(r);
   }
 
-  // Hide the normal route rendering, so only coloured subsection paths remain.
   DATA.routes.forEach(x=>setLines(sectionLines[x.id],false));
   DATA.ferryRoutes.forEach(x=>setLines(ferryLines[x.id],false));
 
   const allCoords=[];
-  r.sections.forEach((s,i)=>{
-    const latlngs=getSubSectionLatLngs(r.id,i);
+  effectiveSections(r).forEach((sec,i)=>{
+    let latlngs=getSubSectionLatLngs(r.id,sec._origIndex);
+    if(sec._reversed)latlngs=[...latlngs].reverse();
     if(!latlngs || latlngs.length<2)return;
 
     latlngs.forEach(ll=>allCoords.push(ll));
     const shadow=L.polyline(latlngs,{color:"#000",weight:14,opacity:.48,zIndex:600}).addTo(map);
     const casing=L.polyline(latlngs,{color:"#fff",weight:10,opacity:.98,zIndex:601}).addTo(map);
     const fg2=L.polyline(latlngs,{color:sectionColor(i),weight:6,opacity:1,zIndex:602}).addTo(map)
-      .bindPopup(`<b>${i+1}. ${s.label}</b><br>${s.roadnames}<br><a target="_blank" href="${wazeSectionUrl(s)}">Waze endpoint</a>`);
+      .bindPopup(`<b>${i+1}. ${sec.label}</b><br>${sec.roadnames}<br><a target="_blank" href="${wazeSectionUrl(sec)}">Waze endpoint</a>`);
     subNavLines.push(shadow,casing,fg2);
   });
 
@@ -1152,22 +1246,24 @@ async function drawSubNavSections(r){
     setTimeout(()=>map.fitBounds(L.latLngBounds(allCoords),visibleFitPadding()),90);
   }
 }
-function subNavItemHTML(r,s,i){
-  const from=pointById(s.from), to=pointById(s.to);
-  const fromName=from?from.name:s.from;
-  const toName=to?to.name:s.to;
-  const timingEl=document.getElementById(`sec-${r.id}-${i}`);
+function subNavItemHTML(r,sec,i){
+  const from=pointById(sec.from), to=pointById(sec.to);
+  const fromName=from?from.name:sec.from;
+  const toName=to?to.name:sec.to;
+  const timingEl=document.getElementById(`sec-${r.id}-${sec._origIndex}`);
   const timing=timingEl?timingEl.textContent:"not calculated";
   const c=sectionColor(i);
   return `<div class="subNavItem" style="border-left-color:${c}">
-    <div class="subNavItemTitle"><span class="subNavColorChip" style="background:${c}"></span>${i+1}. ${s.label}</div>
+    <div class="subNavItemTitle"><span class="subNavColorChip" style="background:${c}"></span>${i+1}. ${sec.label}</div>
     <div class="subNavItemMeta"><b>Start:</b> ${fromName}</div>
     <div class="subNavItemMeta"><b>End:</b> ${toName}</div>
-    <div class="subNavItemMeta"><b>Road:</b> ${s.roadnames}</div>
+    <div class="subNavItemMeta"><b>Road:</b> ${sec.roadnames}</div>
     <div class="subNavItemMeta"><b>OSRM time:</b> ${timing}</div>
-    <div class="subNavItemMeta">${s.note||""}</div>
+    <div class="subNavItemMeta">${sec.note||""}</div>
     <div class="subNavActions">
-      <a target="_blank" href="${googleSectionUrl(s)}">Google subsection</a><a target="_blank" href="${wazeSectionUrl(s)}">Waze endpoint</a><button onclick="zoomToSubSection(\'${r.id}\',${i})">Show on map</button>
+      <a target="_blank" href="${googleSectionUrl(sec)}">Google subsection</a>
+      <a target="_blank" href="${wazeSectionUrl(sec)}">Waze endpoint</a>
+      <button onclick="zoomToSubSection('${r.id}',${sec._origIndex})">Show on map</button>
     </div>
   </div>`;
 }
@@ -1176,9 +1272,9 @@ async function openSubNavView(routeId){
   if(!r)return;
   currentSubNavRouteId=routeId;
   document.body.classList.add("subNavMode");
-  document.getElementById("subNavTitle").textContent=r.name;
+  document.getElementById("subNavTitle").textContent=r.name+" — "+directionLabel(r);
   document.getElementById("subNavSubtitle").textContent="Waze opens the section end point; Google subsection uses start + end";
-  document.getElementById("subNavList").innerHTML=(r.sections||[]).map((s,i)=>subNavItemHTML(r,s,i)).join("");
+  document.getElementById("subNavList").innerHTML=effectiveSections(r).map((sec,i)=>subNavItemHTML(r,sec,i)).join("");
   document.getElementById("subNavPanel").classList.remove("hidden","collapsed");
   // Hide workflow panels while subnav is active.
   document.getElementById("desktopIntro")?.classList.add("hidden");
@@ -1190,7 +1286,7 @@ async function openSubNavView(routeId){
   setTimeout(()=>map.invalidateSize(),50);
   await drawSubNavSections(r);
   // Re-render list after routeAllSections, so timings are refreshed.
-  document.getElementById("subNavList").innerHTML=(r.sections||[]).map((s,i)=>subNavItemHTML(r,s,i)).join("");
+  document.getElementById("subNavList").innerHTML=effectiveSections(r).map((sec,i)=>subNavItemHTML(r,sec,i)).join("");
 }
 function closeSubNavView(){
   document.getElementById("subNavPanel")?.classList.add("hidden");
@@ -1200,9 +1296,9 @@ function closeSubNavView(){
   const routeId=currentSubNavRouteId;
   // Return to the appropriate route detail page.
   if(window.innerWidth<=700){
-    if(routeId) mobileOpenRoute(routeId); else mobileBackToRouteList();
+    if(routeId) mobileOpenRoute(routeId,true); else mobileBackToRouteList();
   }else{
-    if(routeId) desktopOpenRoute(routeId);
+    if(routeId) desktopOpenRoute(routeId,true);
     else document.getElementById("desktopRouteList")?.classList.remove("hidden");
   }
 }
@@ -1218,7 +1314,6 @@ async function zoomToSubSection(routeId,i){
   const r=[...DATA.routes,...DATA.ferryRoutes].find(x=>x.id===routeId);
   if(!r)return;
 
-  // Load the route if needed so the subsection zoom uses the actual OSRM road path.
   if(!sectionLines[routeId] || sectionLines[routeId].length < (r.sections||[]).length*3){
     await routeAllSections(r);
     DATA.routes.forEach(x=>setLines(sectionLines[x.id],false));
@@ -1226,7 +1321,9 @@ async function zoomToSubSection(routeId,i){
     await drawSubNavSections(r);
   }
 
-  const latlngs=getSubSectionLatLngs(routeId,i);
+  let latlngs=getSubSectionLatLngs(routeId,i);
+  const secDisplay=effectiveSections(r).find(sec=>sec._origIndex===i);
+  if(secDisplay && secDisplay._reversed)latlngs=[...latlngs].reverse();
   if(!latlngs || latlngs.length<2)return;
 
   setTimeout(()=>map.invalidateSize(),30);
