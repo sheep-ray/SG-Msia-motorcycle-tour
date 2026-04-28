@@ -266,6 +266,11 @@
   .mobileMapHint.hidden{display:none!important}
 }
 
+
+@media(max-width:700px){
+  .mobilePrimary:disabled{opacity:.75;filter:saturate(.7)}
+}
+
 </style></head><body><div id="map"></div>
 
 <div id="mobileShell" class="mobileShell">
@@ -278,7 +283,6 @@
       <div class="mobileProgressText" id="mobileProgressText">Preparing routes…</div>
       <div class="mobileProgressBar"><div id="mobileProgressFill"></div></div>
     </div>
-    <button class="mobileSecondary" onclick="mobileShowFullMap()">Show full map</button>
     <p class="mobileHint">After loading, choose a route from the list. Route timings use free OSRM; use Google Maps buttons for live navigation.</p>
   </section>
 
@@ -298,7 +302,7 @@
     <div id="mobileRouteDetailContent" class="mobileRouteDetailContent"></div>
   </section>
 
-  <button id="mobileFloatingMenu" class="mobileFloatingMenu hidden" onclick="mobileBackToRouteList()">Routes</button>
+  <button id="mobileFloatingMenu" class="mobileFloatingMenu hidden" onclick="mobileRestorePanelsFromMap()">Back</button>
   <div id="mobileMapHint" class="mobileMapHint hidden">Tap map to show route list</div>
 </div>
 
@@ -431,11 +435,22 @@ function mobileBuildRouteButtons(){
 async function mobileLoadRoutes(){
   const intro=document.getElementById("mobileIntro");
   const list=document.getElementById("mobileRouteList");
+  const button=intro ? intro.querySelector(".mobilePrimary") : null;
+  if(button){
+    button.disabled=true;
+    button.textContent="Loading routes…";
+  }
   await mobileLoadRoutesWithProgress();
-  if(intro)intro.classList.add("hidden");
-  if(list)list.classList.remove("hidden");
-  document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
-  document.getElementById("mobileMapHint")?.classList.add("hidden");
+  if(button){
+    button.disabled=false;
+    button.textContent="Routes loaded";
+  }
+  setTimeout(()=>{
+    if(intro)intro.classList.add("hidden");
+    if(list)list.classList.remove("hidden");
+    document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
+    document.getElementById("mobileMapHint")?.classList.add("hidden");
+  }, 600);
 }
 function mobileOpenRoute(routeId){
   focusRouteOnly(routeId);
@@ -469,6 +484,7 @@ function mobileBackToRouteList(){
   document.getElementById("mobileRouteDetail")?.classList.add("hidden");
   document.getElementById("mobileRouteList")?.classList.remove("hidden");
   document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
+  mobileLastPanel="detail";
 }
 function mobileShowFullMap(){
   mobileHidePanelsForMap();
@@ -507,7 +523,7 @@ async function mobileLoadRoutesWithProgress(){
   mobileRoutesLoaded=true;
   if(status)status.textContent="Routes loaded. Choose one route.";
   const text=document.getElementById("mobileProgressText");
-  if(text)text.textContent=`Finished loading ${list.length} routes`;
+  if(text)text.textContent=`Finished loading ${list.length} routes. Opening route list…`;
 }
 
 function mobileAllPanelsHidden(){
@@ -517,9 +533,10 @@ function mobileAllPanelsHidden(){
 }
 
 function mobileHidePanelsForMap(){
+  const introVisible=!document.getElementById("mobileIntro")?.classList.contains("hidden");
   const detailVisible=!document.getElementById("mobileRouteDetail")?.classList.contains("hidden");
   const listVisible=!document.getElementById("mobileRouteList")?.classList.contains("hidden");
-  mobileLastPanel=detailVisible?"detail":(listVisible?"list":"list");
+  mobileLastPanel=introVisible?"intro":(detailVisible?"detail":(listVisible?"list":"list"));
   document.getElementById("mobileIntro")?.classList.add("hidden");
   document.getElementById("mobileRouteList")?.classList.add("hidden");
   document.getElementById("mobileRouteDetail")?.classList.add("hidden");
@@ -531,8 +548,13 @@ function mobileHidePanelsForMap(){
 function mobileRestorePanelsFromMap(){
   document.getElementById("mobileFloatingMenu")?.classList.add("hidden");
   document.getElementById("mobileMapHint")?.classList.add("hidden");
+  document.getElementById("mobileIntro")?.classList.add("hidden");
+  document.getElementById("mobileRouteList")?.classList.add("hidden");
+  document.getElementById("mobileRouteDetail")?.classList.add("hidden");
   if(mobileLastPanel==="detail"){
     document.getElementById("mobileRouteDetail")?.classList.remove("hidden");
+  }else if(mobileLastPanel==="intro"){
+    document.getElementById("mobileIntro")?.classList.remove("hidden");
   }else{
     document.getElementById("mobileRouteList")?.classList.remove("hidden");
   }
